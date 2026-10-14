@@ -12,11 +12,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/mcstatus-io/mcutil/v4/formatting"
-	"github.com/mcstatus-io/mcutil/v4/options"
-	"github.com/mcstatus-io/mcutil/v4/proto"
-	"github.com/mcstatus-io/mcutil/v4/response"
-	"github.com/mcstatus-io/mcutil/v4/util"
+	"github.com/NotRaelc/mcutil/v4/formatting"
+	"github.com/NotRaelc/mcutil/v4/options"
+	"github.com/NotRaelc/mcutil/v4/proto"
+	"github.com/NotRaelc/mcutil/v4/response"
+	"github.com/NotRaelc/mcutil/v4/util"
 )
 
 var defaultJavaStatusOptions = options.StatusModern{

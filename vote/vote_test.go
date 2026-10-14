@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mcstatus-io/mcutil/v4/options"
-	"github.com/mcstatus-io/mcutil/v4/vote"
+	"github.com/NotRaelc/mcutil/v4/options"
+	"github.com/NotRaelc/mcutil/v4/vote"
 )
 
 func TestVote(t *testing.T) {

@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mcstatus-io/mcutil/v4/formatting"
-	"github.com/mcstatus-io/mcutil/v4/options"
-	"github.com/mcstatus-io/mcutil/v4/response"
+	"github.com/NotRaelc/mcutil/v4/formatting"
+	"github.com/NotRaelc/mcutil/v4/options"
+	"github.com/NotRaelc/mcutil/v4/response"
 )
 
 // Basic runs a query on the server and returns basic information.

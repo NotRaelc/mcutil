@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mcstatus-io/mcutil/v4/options"
+	"github.com/NotRaelc/mcutil/v4/options"
 )
 
 var (

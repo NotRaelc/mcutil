@@ -6,7 +6,7 @@ import (
 	"io"
 	"regexp"
 
-	"github.com/mcstatus-io/mcutil/v4/proto"
+	"github.com/NotRaelc/mcutil/v4/proto"
 )
 
 var (

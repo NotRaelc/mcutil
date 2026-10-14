@@ -3,7 +3,7 @@ package formatting_test
 import (
 	"testing"
 
-	"github.com/mcstatus-io/mcutil/v4/formatting"
+	"github.com/NotRaelc/mcutil/v4/formatting"
 )
 
 func TestFormatting(t *testing.T) {

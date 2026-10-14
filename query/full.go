@@ -11,8 +11,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/mcstatus-io/mcutil/v4/options"
-	"github.com/mcstatus-io/mcutil/v4/response"
+	"github.com/NotRaelc/mcutil/v4/options"
+	"github.com/NotRaelc/mcutil/v4/response"
 )
 
 // Full runs a query on the server and returns the full information.

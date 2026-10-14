@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mcstatus-io/mcutil/v4/options"
-	"github.com/mcstatus-io/mcutil/v4/rcon"
+	"github.com/NotRaelc/mcutil/v4/options"
+	"github.com/NotRaelc/mcutil/v4/rcon"
 )
 
 func TestDialContextCancel(t *testing.T) {

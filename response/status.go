@@ -3,7 +3,7 @@ package response
 import (
 	"time"
 
-	"github.com/mcstatus-io/mcutil/v4/formatting"
+	"github.com/NotRaelc/mcutil/v4/formatting"
 )
 
 // StatusModern is the response data returned from performing a status lookup on a modern Minecraft Java Edition server.

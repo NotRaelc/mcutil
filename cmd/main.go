@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/NotRaelc/mcutil/v4/options"
+	"github.com/NotRaelc/mcutil/v4/query"
+	"github.com/NotRaelc/mcutil/v4/status"
 	"github.com/jessevdk/go-flags"
-	"github.com/mcstatus-io/mcutil/v4/options"
-	"github.com/mcstatus-io/mcutil/v4/query"
-	"github.com/mcstatus-io/mcutil/v4/status"
 )
 
 var (

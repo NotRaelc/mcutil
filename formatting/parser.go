@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mcstatus-io/mcutil/v4/formatting/colors"
-	"github.com/mcstatus-io/mcutil/v4/formatting/decorators"
+	"github.com/NotRaelc/mcutil/v4/formatting/colors"
+	"github.com/NotRaelc/mcutil/v4/formatting/decorators"
 )
 
 // Result is a parsed structure of any Minecraft string encoded with color codes or format codes.
@@ -81,7 +81,7 @@ func parseAny(input any, parent map[string]any) ([]Item, error) {
 
 			// It is possible that a child value of an "extra" property on a chat component may be a string and
 			// not another chat component, so the parents' properties must be inherited on this string as well.
-			// See: https://github.com/mcstatus-io/mcutil/issues/6
+			// See: https://github.com/NotRaelc/mcutil/issues/6
 			result = append(result, children...)
 
 			break

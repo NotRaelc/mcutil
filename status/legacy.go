@@ -11,10 +11,10 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"github.com/mcstatus-io/mcutil/v4/formatting"
-	"github.com/mcstatus-io/mcutil/v4/options"
-	"github.com/mcstatus-io/mcutil/v4/response"
-	"github.com/mcstatus-io/mcutil/v4/util"
+	"github.com/NotRaelc/mcutil/v4/formatting"
+	"github.com/NotRaelc/mcutil/v4/options"
+	"github.com/NotRaelc/mcutil/v4/response"
+	"github.com/NotRaelc/mcutil/v4/util"
 )
 
 var defaultJavaStatusLegacyOptions = options.StatusLegacy{

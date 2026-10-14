@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mcstatus-io/mcutil/v4/query"
+	"github.com/NotRaelc/mcutil/v4/query"
 )
 
 func deafUDP(t *testing.T) net.PacketConn {

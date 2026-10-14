@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mcstatus-io/mcutil/v4/query"
-	"github.com/mcstatus-io/mcutil/v4/util"
+	"github.com/NotRaelc/mcutil/v4/query"
+	"github.com/NotRaelc/mcutil/v4/util"
 )
 
 func TestFull(t *testing.T) {

@@ -1,19 +1,19 @@
 # mcutil
-![](https://img.shields.io/github/languages/code-size/mcstatus-io/mcutil)
-![](https://img.shields.io/github/issues/mcstatus-io/mcutil)
-![](https://img.shields.io/github/license/mcstatus-io/mcutil)
+![](https://img.shields.io/github/languages/code-size/NotRaelc/mcutil)
+![](https://img.shields.io/github/issues/NotRaelc/mcutil)
+![](https://img.shields.io/github/license/NotRaelc/mcutil)
 
 A zero-dependency library for interacting with the Minecraft protocol in Go. Supports retrieving the status of any Minecraft server (Java or Bedrock Edition), querying a server for information, sending remote commands with RCON, and sending Votifier votes. Look at the examples in this readme or search through the documentation instead.
 
 ## Installation
 
 ```bash
-go get github.com/mcstatus-io/mcutil/v4
+go get github.com/NotRaelc/mcutil/v4
 ```
 
 ## Documentation
 
-https://pkg.go.dev/github.com/mcstatus-io/mcutil/v4
+https://pkg.go.dev/github.com/NotRaelc/mcutil/v4
 
 ## Usage
 
@@ -27,7 +27,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/mcstatus-io/mcutil/v4/status"
+    "github.com/NotRaelc/mcutil/v4/status"
 )
 
 func main() {
@@ -55,7 +55,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/mcstatus-io/mcutil/v4/status"
+    "github.com/NotRaelc/mcutil/v4/status"
 )
 
 func main() {
@@ -83,7 +83,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/mcstatus-io/mcutil/v4/status"
+    "github.com/NotRaelc/mcutil/v4/status"
 )
 
 func main() {
@@ -111,7 +111,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/mcstatus-io/mcutil/v4/query"
+    "github.com/NotRaelc/mcutil/v4/query"
 )
 
 func main() {
@@ -140,7 +140,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/mcstatus-io/mcutil/v4/query"
+    "github.com/NotRaelc/mcutil/v4/query"
 )
 
 func main() {
@@ -163,7 +163,7 @@ func main() {
 Executes remote console commands on the server. You must know the connection details of the RCON server, as well as the password.
 
 ```go
-import "github.com/mcstatus-io/mcutil/v4/rcon"
+import "github.com/NotRaelc/mcutil/v4/rcon"
 
 func main() {
     client, err := rcon.Dial("127.0.0.1", 25575)
@@ -197,8 +197,8 @@ import (
     "context"
     "time"
 
-    "github.com/mcstatus-io/mcutil/v4/vote"
-    "github.com/mcstatus-io/mcutil/v4/options"
+    "github.com/NotRaelc/mcutil/v4/vote"
+    "github.com/NotRaelc/mcutil/v4/options"
 )
 
 func main() {
@@ -229,4 +229,4 @@ func main() {
 
 ## License
 
-[MIT License](https://github.com/mcstatus-io/mcutil/blob/main/LICENSE)
+[MIT License](https://github.com/NotRaelc/mcutil/blob/main/LICENSE)

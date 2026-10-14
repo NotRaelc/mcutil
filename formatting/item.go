@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/mcstatus-io/mcutil/v4/formatting/colors"
-	"github.com/mcstatus-io/mcutil/v4/formatting/decorators"
+	"github.com/NotRaelc/mcutil/v4/formatting/colors"
+	"github.com/NotRaelc/mcutil/v4/formatting/decorators"
 )
 
 // Item is a single formatting item that contains a color and any optional formatting controls.
