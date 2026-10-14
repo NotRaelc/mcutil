@@ -1,4 +1,4 @@
-module github.com/mcstatus-io/mcutil/v4
+module github.com/NotRaelc/mcutil/v4
 
 go 1.25.0
 
