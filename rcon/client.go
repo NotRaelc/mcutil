@@ -24,11 +24,9 @@ var (
 	ErrNotAuthenticated = errors.New("rcon: not authenticated with the server")
 )
 
-var (
-	defaultOptions = options.RCON{
-		Timeout: time.Second * 5,
-	}
-)
+var defaultOptions = options.RCON{
+	Timeout: time.Second * 5,
+}
 
 // Client is a client for interacting with RCON and contains multiple methods.
 type Client struct {
@@ -40,11 +38,18 @@ type Client struct {
 }
 
 // Dial connects to the server using the address provided and returns a new client.
+//
+// Deprecated: use DialContext to make the initial connection cancellable.
 func Dial(hostname string, port uint16, options ...options.RCON) (*Client, error) {
+	return DialContext(context.Background(), hostname, port, options...)
+}
+
+// DialContext connects to the server and honors ctx during the initial dial.
+func DialContext(ctx context.Context, hostname string, port uint16, options ...options.RCON) (*Client, error) {
 	opts := parseOptions(options...)
 
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", hostname, port), opts.Timeout)
-
+	dialer := net.Dialer{Timeout: opts.Timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", hostname, port))
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +162,7 @@ func (r *Client) Login(password string) error {
 
 	r.authSuccess = true
 
-	go (func() {
+	go func() {
 		for {
 			err := r.readMessage()
 
@@ -172,7 +177,7 @@ func (r *Client) Login(password string) error {
 				break
 			}
 		}
-	})()
+	}()
 
 	return nil
 }
@@ -336,9 +341,7 @@ func (r *Client) readMessage() error {
 
 func (r *Client) nextRequestID() int32 {
 	value := r.requestID
-
 	r.requestID++
-
 	return value
 }
 
@@ -346,6 +349,5 @@ func parseOptions(opts ...options.RCON) options.RCON {
 	if len(opts) < 1 {
 		return defaultOptions
 	}
-
 	return opts[0]
 }

@@ -13,35 +13,14 @@ import (
 )
 
 // ModernRaw returns the raw status data of any 1.7+ Java Edition Minecraft server.
+//
+// ctx cancels the request. opts.Timeout is used as a fallback upper bound
+// when ctx has no deadline of its own.
 func ModernRaw(ctx context.Context, hostname string, port uint16, options ...options.StatusModern) (map[string]any, error) {
-	r := make(chan map[string]any, 1)
-	e := make(chan error, 1)
-
-	go func() {
-		result, err := getStatusRaw(hostname, port, options...)
-
-		if err != nil {
-			e <- err
-		} else if result != nil {
-			r <- result
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		if v := ctx.Err(); v != nil {
-			return nil, v
-		}
-
-		return nil, context.DeadlineExceeded
-	case v := <-r:
-		return v, nil
-	case v := <-e:
-		return nil, v
-	}
+	return getStatusRaw(ctx, hostname, port, options...)
 }
 
-func getStatusRaw(hostname string, port uint16, options ...options.StatusModern) (map[string]any, error) {
+func getStatusRaw(ctx context.Context, hostname string, port uint16, options ...options.StatusModern) (map[string]any, error) {
 	var (
 		opts                              = parseJavaStatusOptions(options...)
 		connectionHostname                = hostname
@@ -51,47 +30,45 @@ func getStatusRaw(hostname string, port uint16, options ...options.StatusModern)
 	)
 
 	if opts.EnableSRV && port == util.DefaultJavaPort && net.ParseIP(connectionHostname) == nil {
-		record, err := util.LookupSRV(hostname)
-
+		record, err := util.LookupSRVContext(ctx, hostname)
 		if err == nil && record != nil {
 			connectionHostname = record.Target
 			connectionPort = record.Port
 		}
 	}
 
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", connectionHostname, connectionPort), opts.Timeout)
-
+	dialer := net.Dialer{Timeout: opts.Timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", connectionHostname, connectionPort))
 	if err != nil {
 		return nil, err
 	}
-
 	defer conn.Close()
+
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
+
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		if err := conn.SetDeadline(time.Now().Add(opts.Timeout)); err != nil {
+			return nil, err
+		}
+	}
 
 	r := io.LimitReader(conn, opts.ReceiveLimitBytes)
 
-	if err = conn.SetDeadline(time.Now().Add(opts.Timeout)); err != nil {
+	if err := writeJavaStatusHandshakePacket(conn, int32(opts.ProtocolVersion), connectionHostname, connectionPort); err != nil {
 		return nil, err
 	}
-
-	if err = writeJavaStatusHandshakePacket(conn, int32(opts.ProtocolVersion), connectionHostname, connectionPort); err != nil {
+	if err := writeJavaStatusStatusRequestPacket(conn); err != nil {
 		return nil, err
 	}
-
-	if err = writeJavaStatusStatusRequestPacket(conn); err != nil {
+	if err := readJavaStatusStatusResponsePacket(r, &result); err != nil {
 		return nil, err
 	}
-
-	if err = readJavaStatusStatusResponsePacket(r, &result); err != nil {
+	if err := writeJavaStatusPingPacket(conn, payload); err != nil {
 		return nil, err
 	}
-
-	if err = writeJavaStatusPingPacket(conn, payload); err != nil {
+	if err := readJavaStatusPongPacket(r, payload); err != nil {
 		return nil, err
 	}
-
-	if err = readJavaStatusPongPacket(r, payload); err != nil {
-		return nil, err
-	}
-
 	return result, nil
 }

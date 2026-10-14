@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"net"
 	"strconv"
 )
@@ -13,17 +14,21 @@ const (
 )
 
 // LookupSRV resolves any Minecraft SRV record from the DNS of the domain.
+//
+// Deprecated: use LookupSRVContext to make the lookup cancellable.
 func LookupSRV(host string) (*net.SRV, error) {
-	_, addrs, err := net.LookupSRV("minecraft", "tcp", host)
+	return LookupSRVContext(context.Background(), host)
+}
 
+// LookupSRVContext resolves a Minecraft SRV record. The lookup honors ctx.
+func LookupSRVContext(ctx context.Context, host string) (*net.SRV, error) {
+	_, addrs, err := net.DefaultResolver.LookupSRV(ctx, "minecraft", "tcp", host)
 	if err != nil {
 		return nil, err
 	}
-
 	if len(addrs) < 1 {
 		return nil, nil
 	}
-
 	return addrs[0], nil
 }
 

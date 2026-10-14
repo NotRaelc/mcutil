@@ -28,76 +28,50 @@ var (
 )
 
 // Bedrock retrieves the status of a Bedrock Edition Minecraft server.
+//
+// ctx cancels the request. opts.Timeout is used as a fallback upper bound
+// when ctx has no deadline of its own.
 func Bedrock(ctx context.Context, hostname string, port uint16, options ...options.StatusBedrock) (*response.StatusBedrock, error) {
-	r := make(chan *response.StatusBedrock, 1)
-	e := make(chan error, 1)
-
-	go func() {
-		result, err := getStatusBedrock(hostname, port, options...)
-
-		if err != nil {
-			e <- err
-		} else if result != nil {
-			r <- result
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		if v := ctx.Err(); v != nil {
-			return nil, v
-		}
-
-		return nil, context.DeadlineExceeded
-	case v := <-r:
-		return v, nil
-	case v := <-e:
-		return nil, v
-	}
+	return getStatusBedrock(ctx, hostname, port, options...)
 }
 
-func getStatusBedrock(hostname string, port uint16, options ...options.StatusBedrock) (*response.StatusBedrock, error) {
+func getStatusBedrock(ctx context.Context, hostname string, port uint16, options ...options.StatusBedrock) (*response.StatusBedrock, error) {
 	opts := parseBedrockStatusOptions(options...)
 
-	conn, err := net.DialTimeout("udp", fmt.Sprintf("%s:%d", hostname, port), opts.Timeout)
-
+	dialer := net.Dialer{Timeout: opts.Timeout}
+	conn, err := dialer.DialContext(ctx, "udp", fmt.Sprintf("%s:%d", hostname, port))
 	if err != nil {
 		return nil, err
 	}
-
 	defer conn.Close()
 
-	r := bufio.NewReader(io.LimitReader(conn, opts.ReceiveLimitBytes))
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
 
-	if err = conn.SetDeadline(time.Now().Add(opts.Timeout)); err != nil {
-		return nil, err
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		if err := conn.SetDeadline(time.Now().Add(opts.Timeout)); err != nil {
+			return nil, err
+		}
 	}
+
+	r := bufio.NewReader(io.LimitReader(conn, opts.ReceiveLimitBytes))
 
 	// Unconnected ping packet
 	// https://wiki.vg/Raknet_Protocol#Unconnected_Ping
 	{
 		buf := &bytes.Buffer{}
-
-		// Packet ID - byte
 		if err := buf.WriteByte(0x01); err != nil {
 			return nil, err
 		}
-
-		// Time - int64
 		if err := binary.Write(buf, binary.BigEndian, time.Now().UnixMilli()); err != nil {
 			return nil, err
 		}
-
-		// Magic - bytes
 		if _, err := buf.Write(bedrockMagic); err != nil {
 			return nil, err
 		}
-
-		// Client GUID - int64
 		if err := binary.Write(buf, binary.BigEndian, opts.ClientGUID); err != nil {
 			return nil, err
 		}
-
 		if _, err := io.Copy(conn, buf); err != nil {
 			return nil, err
 		}
@@ -106,89 +80,53 @@ func getStatusBedrock(hostname string, port uint16, options ...options.StatusBed
 	var (
 		serverGUID   int64
 		serverID     string
-		receiveStart time.Time = time.Now()
+		receiveStart = time.Now()
 		latency      time.Duration
 	)
 
 	// Unconnected pong packet
 	// https://wiki.vg/Raknet_Protocol#Unconnected_Pong
 	{
-		// Type - byte
-		{
-			var packetType byte
-
-			if err := binary.Read(r, binary.BigEndian, &packetType); err != nil {
-				return nil, err
-			}
-
-			if packetType != 0x1C {
-				return nil, fmt.Errorf("statusbedrock: received unexpected packet type (expected=0x1C, received=0x%02X)", packetType)
-			}
+		var packetType byte
+		if err := binary.Read(r, binary.BigEndian, &packetType); err != nil {
+			return nil, err
+		}
+		if packetType != 0x1C {
+			return nil, fmt.Errorf("statusbedrock: received unexpected packet type (expected=0x1C, received=0x%02X)", packetType)
 		}
 
 		latency = time.Since(receiveStart)
 
-		// Time - int64
-		{
-			var time int64
-
-			if err := binary.Read(r, binary.BigEndian, &time); err != nil {
-				return nil, err
-			}
+		var t int64
+		if err := binary.Read(r, binary.BigEndian, &t); err != nil {
+			return nil, err
+		}
+		if err := binary.Read(r, binary.BigEndian, &serverGUID); err != nil {
+			return nil, err
 		}
 
-		// Server GUID - int64
-		{
-			if err := binary.Read(r, binary.BigEndian, &serverGUID); err != nil {
-				return nil, err
-			}
+		data := make([]byte, 16)
+		if _, err := r.Read(data); err != nil {
+			return nil, err
 		}
 
-		// Magic - bytes
-		{
-			data := make([]byte, 16)
-
-			if _, err := r.Read(data); err != nil {
-				return nil, err
-			}
+		var length uint16
+		if err := binary.Read(r, binary.BigEndian, &length); err != nil {
+			return nil, err
 		}
-
-		// Server ID - string
-		{
-			var length uint16
-
-			if err := binary.Read(r, binary.BigEndian, &length); err != nil {
-				return nil, err
-			}
-
-			data := make([]byte, length)
-
-			if _, err = r.Read(data); err != nil {
-				return nil, err
-			}
-
-			serverID = string(data)
+		id := make([]byte, length)
+		if _, err := r.Read(id); err != nil {
+			return nil, err
 		}
+		serverID = string(id)
 	}
 
-	response := response.StatusBedrock{
-		ServerGUID:      serverGUID,
-		Edition:         nil,
-		MOTD:            nil,
-		ProtocolVersion: nil,
-		Version:         nil,
-		OnlinePlayers:   nil,
-		MaxPlayers:      nil,
-		ServerID:        nil,
-		Gamemode:        nil,
-		GamemodeID:      nil,
-		PortIPv4:        nil,
-		PortIPv6:        nil,
-		Latency:         latency,
+	resp := response.StatusBedrock{
+		ServerGUID: serverGUID,
+		Latency:    latency,
 	}
 
 	splitID := strings.Split(serverID, ";")
-
 	var motd string
 
 	for k, value := range splitID {
@@ -198,137 +136,73 @@ func getStatusBedrock(hostname string, port uint16, options ...options.StatusBed
 
 		switch k {
 		case 0:
-			{
-				response.Edition = pointerOf(value)
-
-				break
-			}
+			resp.Edition = pointerOf(value)
 		case 1:
-			{
-				motd = value
-
-				break
-			}
+			motd = value
 		case 2:
-			{
-				protocolVersion, err := strconv.ParseInt(value, 10, 64)
-
-				if err != nil {
-					return nil, err
-				}
-
-				response.ProtocolVersion = &protocolVersion
-
-				break
+			protocolVersion, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return nil, err
 			}
+			resp.ProtocolVersion = &protocolVersion
 		case 3:
-			{
-				response.Version = pointerOf(value)
-
-				break
-			}
+			resp.Version = pointerOf(value)
 		case 4:
-			{
-				onlinePlayers, err := strconv.ParseInt(value, 10, 64)
-
-				if err != nil {
-					return nil, err
-				}
-
-				response.OnlinePlayers = &onlinePlayers
-
-				break
+			onlinePlayers, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return nil, err
 			}
+			resp.OnlinePlayers = &onlinePlayers
 		case 5:
-			{
-				maxPlayers, err := strconv.ParseInt(value, 10, 64)
-
-				if err != nil {
-					return nil, err
-				}
-
-				response.MaxPlayers = &maxPlayers
-
-				break
+			maxPlayers, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return nil, err
 			}
+			resp.MaxPlayers = &maxPlayers
 		case 6:
-			{
-				response.ServerID = pointerOf(value)
-
-				break
-			}
+			resp.ServerID = pointerOf(value)
 		case 7:
-			{
-				motd += "\n" + value
-
-				break
-			}
+			motd += "\n" + value
 		case 8:
-			{
-				response.Gamemode = pointerOf(value)
-
-				break
-			}
+			resp.Gamemode = pointerOf(value)
 		case 9:
-			{
-				gamemodeID, err := strconv.ParseInt(value, 10, 64)
-
-				if err != nil {
-					return nil, err
-				}
-
-				response.GamemodeID = &gamemodeID
-
-				break
+			gamemodeID, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return nil, err
 			}
+			resp.GamemodeID = &gamemodeID
 		case 10:
-			{
-				portIPv4, err := strconv.ParseInt(value, 10, 64)
-
-				if err != nil {
-					return nil, err
-				}
-
-				portIPv4Value := uint16(portIPv4)
-				response.PortIPv4 = &portIPv4Value
-
-				break
+			portIPv4, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return nil, err
 			}
+			v := uint16(portIPv4)
+			resp.PortIPv4 = &v
 		case 11:
-			{
-				portIPv6, err := strconv.ParseInt(value, 10, 64)
-
-				if err != nil {
-					return nil, err
-				}
-
-				response.PortIPv6 = pointerOf(uint16(portIPv6))
-
-				break
+			portIPv6, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return nil, err
 			}
+			resp.PortIPv6 = pointerOf(uint16(portIPv6))
 		}
 	}
 
 	if len(motd) > 0 {
-		parsedMOTD, err := formatting.Parse(motd)
-
+		parsed, err := formatting.Parse(motd)
 		if err != nil {
 			return nil, err
 		}
-
-		response.MOTD = parsedMOTD
+		resp.MOTD = parsed
 	}
 
-	return &response, nil
+	return &resp, nil
 }
 
 func parseBedrockStatusOptions(opts ...options.StatusBedrock) options.StatusBedrock {
 	if len(opts) < 1 {
-		options := options.StatusBedrock(defaultBedrockStatusOptions)
-		options.ClientGUID = rand.Int63()
-
-		return options
+		o := options.StatusBedrock(defaultBedrockStatusOptions)
+		o.ClientGUID = rand.Int63()
+		return o
 	}
-
 	return opts[0]
 }

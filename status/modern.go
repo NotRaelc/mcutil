@@ -65,35 +65,15 @@ type rawJavaStatus struct {
 }
 
 // Modern retrieves the status of any 1.7+ Minecraft server.
+//
+// ctx cancels the request. opts.Timeout is used as a fallback upper bound
+// when ctx has no deadline of its own. When ctx has a deadline, that
+// deadline takes precedence.
 func Modern(ctx context.Context, hostname string, port uint16, options ...options.StatusModern) (*response.StatusModern, error) {
-	r := make(chan *response.StatusModern, 1)
-	e := make(chan error, 1)
-
-	go func() {
-		result, err := getStatusModern(hostname, port, options...)
-
-		if err != nil {
-			e <- err
-		} else if result != nil {
-			r <- result
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		if v := ctx.Err(); v != nil {
-			return nil, v
-		}
-
-		return nil, context.DeadlineExceeded
-	case v := <-r:
-		return v, nil
-	case v := <-e:
-		return nil, v
-	}
+	return getStatusModern(ctx, hostname, port, options...)
 }
 
-func getStatusModern(hostname string, port uint16, options ...options.StatusModern) (*response.StatusModern, error) {
+func getStatusModern(ctx context.Context, hostname string, port uint16, options ...options.StatusModern) (*response.StatusModern, error) {
 	var (
 		opts                                   = parseJavaStatusOptions(options...)
 		connectionHostname string              = hostname
@@ -105,17 +85,11 @@ func getStatusModern(hostname string, port uint16, options ...options.StatusMode
 	)
 
 	if opts.EnableSRV && port == util.DefaultJavaPort && net.ParseIP(connectionHostname) == nil {
-		record, err := util.LookupSRV(hostname)
-
+		record, err := util.LookupSRVContext(ctx, hostname)
 		if err == nil && record != nil {
 			connectionHostname = record.Target
 			connectionPort = record.Port
-
-			srvRecord = &response.SRVRecord{
-				Host: record.Target,
-				Port: record.Port,
-			}
-
+			srvRecord = &response.SRVRecord{Host: record.Target, Port: record.Port}
 			if opts.Debug {
 				log.Printf("Found an SRV record (host=%s, port=%d)", record.Target, record.Port)
 			}
@@ -124,48 +98,51 @@ func getStatusModern(hostname string, port uint16, options ...options.StatusMode
 		}
 	}
 
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", connectionHostname, connectionPort), opts.Timeout)
-
+	dialer := net.Dialer{Timeout: opts.Timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", connectionHostname, connectionPort))
 	if err != nil {
 		return nil, err
+	}
+	defer conn.Close()
+
+	// When ctx is canceled, SetDeadline(now) forces any pending Read
+	// to fail immediately.
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
+
+	// Only install our own socket deadline when ctx has none. Otherwise
+	// ctx is the single source of truth for the time budget.
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		if err := conn.SetDeadline(time.Now().Add(opts.Timeout)); err != nil {
+			return nil, err
+		}
 	}
 
 	if opts.Debug {
 		log.Printf("Successfully connected to %s:%d\n", connectionHostname, connectionPort)
 	}
 
-	defer conn.Close()
-
 	r := io.LimitReader(conn, opts.ReceiveLimitBytes)
 
-	if err = conn.SetDeadline(time.Now().Add(opts.Timeout)); err != nil {
+	if err := writeJavaStatusHandshakePacket(conn, int32(opts.ProtocolVersion), connectionHostname, connectionPort); err != nil {
 		return nil, err
 	}
-
-	if err = writeJavaStatusHandshakePacket(conn, int32(opts.ProtocolVersion), connectionHostname, connectionPort); err != nil {
-		return nil, err
-	}
-
 	if opts.Debug {
 		log.Printf("[S <- C] Wrote handshake packet (proto=%d, host=%s, port=%d, next_state=0)\n", opts.ProtocolVersion, connectionHostname, connectionPort)
 	}
 
-	if err = writeJavaStatusStatusRequestPacket(conn); err != nil {
+	if err := writeJavaStatusStatusRequestPacket(conn); err != nil {
 		return nil, err
 	}
-
 	if opts.Debug {
 		log.Println("[S <- C] Wrote status request packet")
 	}
 
 	receiveStart = time.Now()
-
-	if err = readJavaStatusStatusResponsePacket(r, &rawResponse); err != nil {
+	if err := readJavaStatusStatusResponsePacket(r, &rawResponse); err != nil {
 		return nil, err
 	}
-
 	latency = time.Since(receiveStart)
-
 	if opts.Debug {
 		log.Println("[S -> C] Read status response packet")
 	}
@@ -173,24 +150,20 @@ func getStatusModern(hostname string, port uint16, options ...options.StatusMode
 	if opts.Ping {
 		payload := rand.Int63()
 
-		if err = writeJavaStatusPingPacket(conn, payload); err != nil {
+		if err := writeJavaStatusPingPacket(conn, payload); err != nil {
 			return nil, err
 		}
-
 		if opts.Debug {
 			log.Printf("[S <- C] Wrote ping packet (payload=%d)\n", payload)
 		}
 
 		receiveStart = time.Now()
-
-		if err = readJavaStatusPongPacket(r, payload); err != nil {
+		if err := readJavaStatusPongPacket(r, payload); err != nil {
 			return nil, err
 		}
-
 		if opts.Debug {
 			log.Printf("[S -> C] Read ping packet (payload=%d)\n", payload)
 		}
-
 		latency = time.Since(receiveStart)
 	}
 
@@ -201,7 +174,6 @@ func parseJavaStatusOptions(opts ...options.StatusModern) options.StatusModern {
 	if len(opts) < 1 {
 		return defaultJavaStatusOptions
 	}
-
 	return opts[0]
 }
 
@@ -209,39 +181,28 @@ func parseJavaStatusOptions(opts ...options.StatusModern) options.StatusModern {
 func writeJavaStatusHandshakePacket(w io.Writer, protocolVersion int32, hostname string, port uint16) error {
 	buf := &bytes.Buffer{}
 
-	// Packet ID - varint
 	if err := proto.WriteVarInt(0x00, buf); err != nil {
 		return err
 	}
-
-	// Protocol version - varint
 	if err := proto.WriteVarInt(protocolVersion, buf); err != nil {
 		return err
 	}
 
-	// Host - string
-	// If the hostname provided is in the format of an IPv4 address, a reverse DNS lookup shall
-	// be attempted.
-	{
-		if ipv4RegEx.MatchString(hostname) {
-			results, err := net.LookupAddr(hostname)
-
-			if err == nil && len(results) > 0 {
-				hostname = results[0]
-			}
-		}
-
-		if err := proto.WriteString(hostname, buf); err != nil {
-			return err
+	// If the hostname is an IPv4 literal, attempt a reverse DNS lookup so
+	// that the virtual host matches the one used by real clients.
+	if ipv4RegEx.MatchString(hostname) {
+		results, err := net.LookupAddr(hostname)
+		if err == nil && len(results) > 0 {
+			hostname = results[0]
 		}
 	}
-
-	// Port - uint16
-	if err := binary.Write(buf, binary.BigEndian, port); err != nil {
+	if err := proto.WriteString(hostname, buf); err != nil {
 		return err
 	}
 
-	// Next state - varint
+	if err := binary.Write(buf, binary.BigEndian, port); err != nil {
+		return err
+	}
 	if err := proto.WriteVarInt(1, buf); err != nil {
 		return err
 	}
@@ -252,131 +213,89 @@ func writeJavaStatusHandshakePacket(w io.Writer, protocolVersion int32, hostname
 // https://wiki.vg/Server_List_Ping#Request
 func writeJavaStatusStatusRequestPacket(w io.Writer) error {
 	buf := &bytes.Buffer{}
-
-	// Packet ID - varint
 	if err := proto.WriteVarInt(0x00, buf); err != nil {
 		return err
 	}
-
 	return writePacket(w, buf)
 }
 
 // https://wiki.vg/Server_List_Ping#Response
 func readJavaStatusStatusResponsePacket(r io.Reader, result any) error {
-	// Packet length - varint
-	{
-		if _, err := proto.ReadVarInt(r); err != nil {
-			return err
-		}
+	if _, err := proto.ReadVarInt(r); err != nil {
+		return err
 	}
 
-	// Packet type - varint
-	{
-		packetType, err := proto.ReadVarInt(r)
-
-		if err != nil {
-			return err
-		}
-
-		if packetType != 0x00 {
-			return fmt.Errorf("status: received unexpected packet type (expected=0x00, received=0x%02X)", packetType)
-		}
+	packetType, err := proto.ReadVarInt(r)
+	if err != nil {
+		return err
+	}
+	if packetType != 0x00 {
+		return fmt.Errorf("status: received unexpected packet type (expected=0x00, received=0x%02X)", packetType)
 	}
 
-	// Data - string
-	{
-		data, err := proto.ReadString(r)
-
-		if err != nil {
-			return err
-		}
-
-		if err = json.Unmarshal(data, result); err != nil {
-			return err
-		}
+	data, err := proto.ReadString(r)
+	if err != nil {
+		return err
 	}
-
+	if err := json.Unmarshal(data, result); err != nil {
+		return err
+	}
 	return nil
 }
 
 // https://wiki.vg/Server_List_Ping#Ping
 func writeJavaStatusPingPacket(w io.Writer, payload int64) error {
 	buf := &bytes.Buffer{}
-
-	// Packet ID - varint
 	if err := proto.WriteVarInt(0x01, buf); err != nil {
 		return err
 	}
-
-	// Payload - int64
 	if err := binary.Write(buf, binary.BigEndian, payload); err != nil {
 		return err
 	}
-
 	return writePacket(w, buf)
 }
 
 // https://wiki.vg/Server_List_Ping#Pong
 func readJavaStatusPongPacket(r io.Reader, payload int64) error {
-	// Packet length - varint
-	{
-		if _, err := proto.ReadVarInt(r); err != nil {
-			return err
-		}
+	if _, err := proto.ReadVarInt(r); err != nil {
+		return err
 	}
 
-	// Packet type - varint
-	{
-		packetType, err := proto.ReadVarInt(r)
-
-		if err != nil {
-			return err
-		}
-
-		if packetType != 0x01 {
-			return fmt.Errorf("status: received unexpected packet type (expected=0x01, received=0x%02X)", packetType)
-		}
+	packetType, err := proto.ReadVarInt(r)
+	if err != nil {
+		return err
+	}
+	if packetType != 0x01 {
+		return fmt.Errorf("status: received unexpected packet type (expected=0x01, received=0x%02X)", packetType)
 	}
 
-	// Payload - int64
-	{
-		var returnPayload int64
-
-		if err := binary.Read(r, binary.BigEndian, &returnPayload); err != nil {
-			return err
-		}
-
-		if payload != returnPayload {
-			return fmt.Errorf("status: received unexpected payload (expected=%X, received=%x)", payload, returnPayload)
-		}
+	var returnPayload int64
+	if err := binary.Read(r, binary.BigEndian, &returnPayload); err != nil {
+		return err
 	}
-
+	if payload != returnPayload {
+		return fmt.Errorf("status: received unexpected payload (expected=%X, received=%x)", payload, returnPayload)
+	}
 	return nil
 }
 
 func formatJavaStatusResponse(serverResponse rawJavaStatus, srvRecord *response.SRVRecord, latency time.Duration) (*response.StatusModern, error) {
 	motd, err := formatting.Parse(serverResponse.Description)
-
 	if err != nil {
 		return nil, err
 	}
 
 	samplePlayers := make([]response.SamplePlayer, 0)
-
 	if serverResponse.Players.Sample != nil {
 		for _, player := range serverResponse.Players.Sample {
 			name, err := formatting.Parse(player.Name)
-
 			if err != nil {
 				return nil, err
 			}
-
 			uuid, ok := parsePlayerID(player.ID)
-
 			if !ok {
 				return nil, fmt.Errorf("status: invalid player UUID: %+v", player.ID)
 			}
-
 			samplePlayers = append(samplePlayers, response.SamplePlayer{
 				ID:   uuid,
 				Name: *name,
@@ -385,7 +304,6 @@ func formatJavaStatusResponse(serverResponse rawJavaStatus, srvRecord *response.
 	}
 
 	version, err := formatting.Parse(serverResponse.Version.Name)
-
 	if err != nil {
 		return nil, err
 	}
@@ -409,34 +327,17 @@ func formatJavaStatusResponse(serverResponse rawJavaStatus, srvRecord *response.
 
 	if len(serverResponse.ModInfo.Type) > 0 {
 		mods := make([]response.Mod, 0)
-
 		for _, mod := range serverResponse.ModInfo.List {
-			mods = append(mods, response.Mod{
-				ID:      mod.ID,
-				Version: mod.Version,
-			})
+			mods = append(mods, response.Mod{ID: mod.ID, Version: mod.Version})
 		}
-
-		result.Mods = &response.ModInfo{
-			Type: serverResponse.ModInfo.Type,
-			List: mods,
-		}
+		result.Mods = &response.ModInfo{Type: serverResponse.ModInfo.Type, List: mods}
 	}
-
 	if serverResponse.ForgeData.Mods != nil {
 		mods := make([]response.Mod, 0)
-
 		for _, mod := range serverResponse.ForgeData.Mods {
-			mods = append(mods, response.Mod{
-				ID:      mod.ID,
-				Version: mod.Version,
-			})
+			mods = append(mods, response.Mod{ID: mod.ID, Version: mod.Version})
 		}
-
-		result.Mods = &response.ModInfo{
-			Type: "FML2",
-			List: mods,
-		}
+		result.Mods = &response.ModInfo{Type: "FML2", List: mods}
 	}
 
 	return result, nil
